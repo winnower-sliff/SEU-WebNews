@@ -4,7 +4,7 @@
 
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>南哪小报消息刊载</title>
+    <title>车大消息消息刊载</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/css/bootstrap.min.css">
 </head>
@@ -36,12 +36,11 @@
         {% endwith %}
 
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2>南哪小报 消息刊载</h2>
+            <h2>车大消息 消息刊载</h2>
             <div>
                 <a href="{{ url_for('preview_edit') }}" class="btn btn-outline-primary">预览</a>
                 <a href="{{ url_for('add_deadline') }}" class="btn btn-secondary">上传仅有DDL的消息</a>
                 <a href="{{ url_for('upload') }}" class="btn btn-primary">上传纯文本消息</a>
-                <a href="{{ url_for('stats') }}" class="btn btn-success">光荣榜</a>
             </div>
         </div>
         <form method="POST" action="{{ url_for('paste') }}" class="mb-4">

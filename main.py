@@ -16,8 +16,10 @@ import email.message
 import smtplib
 import time
 import django
+from django.db.models import Q
 from django_config import configure_django
 from django.db import IntegrityError
+import copy
 
 configure_django()
 django.setup()
@@ -150,7 +152,6 @@ def login():
         if user:
             # 计算输入密码的MD5
             input_hash = hashlib.md5(password.encode('utf-8')).hexdigest()
-
             # 比较哈希值
             if user.password_MD5 == input_hash:
                 session.permanent = True
@@ -197,18 +198,6 @@ def main():
 
     return render_template('main.html',entries=contents)
 
-# @app.route('/stats')
-# @login_required
-# def stats():
-#     five_days_ago = datetime.now() - timedelta(days=5)
-#     c.execute("SELECT uploader, COUNT(*) AS count FROM entries WHERE upload_time >= ? GROUP BY uploader ORDER BY count DESC LIMIT 20", (five_days_ago,))
-#     uploader_stats = c.fetchall()
-#     c.execute("SELECT describer, COUNT(*) AS count FROM entries WHERE upload_time >= ? AND describer IS NOT NULL GROUP BY describer ORDER BY count DESC LIMIT 20", (five_days_ago,))
-#     describer_stats = c.fetchall()
-#     c.execute("SELECT reviewer, COUNT(*) AS count FROM entries WHERE upload_time >= ? AND reviewer IS NOT NULL GROUP BY reviewer ORDER BY count DESC LIMIT 20", (five_days_ago,))
-#     reviewer_stats = c.fetchall()
-#     return render_template('stats.html', uploader_stats=uploader_stats, describer_stats=describer_stats, reviewer_stats=reviewer_stats)
-#
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload():
@@ -268,83 +257,61 @@ def describe(entry_id):
 
         return render_template('describe.html', entry=entry)
 #
-# @app.route('/review/<int:entry_id>', methods=['GET', 'POST'])
-# @login_required
-# def review(entry_id):
-#     conn = sqlite3.connect('database.db')
-#     c = conn.cursor()
-#     if request.method == 'POST':
-#         action = request.form['action']
-#
-#         c.execute("SELECT * FROM entries WHERE ID=?", (entry_id,))
-#         entry = c.fetchone()
-#
-#         modified_entry = list(entry)
-#         modified_entry[3] = request.form.get('title', entry[3])
-#         modified_entry[5] = request.form.get('description', entry[5])
-#         modified_entry[8] = request.form.get('due_time', entry[8])
-#         modified_entry[10] = request.form.get('entry_type', entry[10])
-#         modified_entry[15] = request.form.get('tag', entry[15])
-#
-#         if (session['username'] == entry[6] or session['username'] == entry[7]) and action != "modify":
-#             flash("不可通过自己所写的内容！")
-#             conn.close()
-#             return render_template('review.html', entry=modified_entry)
-#
-#         title = request.form['title']
-#         due_time = request.form['due_time']
-#         description = request.form['description']
-#         entry_type = request.form['entry_type']
-#         use_image = 1 if request.form.get('use_image') == 'on' else 0
-#         tag = request.form.get('tag')
-#         short_title = request.form.get('short_title')
-#         unchanged = (title == entry[3] and
-#                      due_time == entry[8] and
-#                      description == entry[5] and
-#                      entry_type == entry[10] and
-#                      use_image == entry[13] and
-#                      tag == entry[15] and
-#                      short_title == entry[16])
-#
-#         if action == 'approve':
-#             if not unchanged:
-#                 flash("内容已作出修改，无法 approve")
-#                 conn.close()
-#                 return render_template('review.html', entry=modified_entry)
-#
-#             c.execute("UPDATE entries SET reviewer=?, status=?, short_title=?, tag=? WHERE id=?",
-#                      (session['username'], 'approved', short_title, tag, entry_id))
-#         else:
-#             if unchanged:
-#                 flash("内容未作出修改，无法 modify")
-#                 conn.close()
-#                 return render_template('review.html', entry=modified_entry)
-#
-#             c.execute("UPDATE entries SET title=?, short_title=?, due_time=?, description=?, reviewer=?, status=?, type=?, use_image=?, tag=? WHERE id=?",
-#                       (title, short_title, due_time, description, session['username'], 'modified', entry_type, use_image, tag, entry_id))
-#
-#         c.execute("UPDATE entries SET locked_by=NULL, lock_time=NULL WHERE id=?", (entry_id,))
-#         conn.commit()
-#         conn.close()
-#         return redirect(url_for('main'))
-#     else:
-#         c.execute("SELECT * FROM entries WHERE id=?", (entry_id,))
-#         entry = c.fetchone()
-#
-#         c.execute("SELECT locked_by, lock_time FROM entries WHERE id=?", (entry_id,))
-#         lock_info = c.fetchone()
-#         if lock_info and lock_info[0] and lock_info[0] != session['username']:
-#             lock_time = datetime.strptime(lock_info[1], "%Y-%m-%d %H:%M:%S.%f") if lock_info[1] else None
-#             if lock_time and datetime.now() - lock_time < timedelta(minutes=15):
-#                 flash("该条目正被其他人编辑")
-#                 conn.close()
-#                 return redirect(url_for('main'))
-#
-#         c.execute("UPDATE entries SET locked_by=?, lock_time=? WHERE id=?", (session['username'], datetime.now(), entry_id))
-#         conn.commit()
-#         conn.close()
-#         return render_template('review.html', entry=entry)
-#
+@app.route('/review/<int:entry_id>', methods=[ 'POST'])
+@login_required
+def review(entry_id):
+        action = request.form['action']
+
+        content = Content.object.get(id=entry_id)
+        m_content = copy.copy(content)
+        m_content.title = request.form.get('title', content.title)
+        m_content.description = request.form.get('description', content.description)
+        m_content.deadline = request.form.get('due_time', content.deadline)
+        m_content.type = request.form.get('entry_type', content.type)
+        m_content.tag = request.form.get('tag', content.tag)
+
+        if (session['username'] == content.describer or session['username'] == content.creator) and action != "modify":
+            flash("不可通过自己所写的内容！")
+            return render_template('review.html', entry=content)
+        title = request.form['title']
+        due_time = request.form['due_time']
+        description = request.form['description']
+        entry_type = request.form['entry_type']
+        use_image = 1 if request.form.get('use_image') == 'on' else 0
+        tag = request.form.get('tag')
+        short_title = request.form.get('short_title')
+        is_modified = any([
+            content.title != title,
+            content.description != description,
+            content.deadline != due_time,
+            content.type != entry_type,
+            content.tag != tag,
+            content.short_title != short_title
+        ])
+
+        if action == 'approve':
+            if is_modified:
+                flash("内容已作出修改，无法 approve")
+                return render_template('review.html', entry=m_content)
+            content.reviewer = session['username']
+            content.status = 'reviewed'
+            content.save()
+        else:
+            if not is_modified:
+                flash("内容未作出修改，无法 modify")
+                return render_template('review.html', entry=m_content)
+
+            content.reviewer = session['username']
+            content.status = 'reviewed'
+            content.title = title
+            content.description = description
+            content.deadline = due_time
+            content.type = entry_type
+            content.tag = tag
+            content.short_title = short_title
+            content.save()
+        return redirect(url_for('main'))
+
 # @app.route('/cancel/<int:entry_id>')
 # @login_required
 # def cancel(entry_id):
@@ -358,10 +325,10 @@ def describe(entry_id):
 #     conn.close()
 #     return redirect(url_for('main'))
 #
-# @app.route('/logout')
-# def logout():
-#     session.pop('username', None)
-#     return redirect(url_for('login'))
+@app.route('/logout')
+def logout():
+    session.pop('username', None)
+    return redirect(url_for('login'))
 #
 # @app.route('/change_password', methods=['GET', 'POST'])
 # @login_required
@@ -390,73 +357,71 @@ def describe(entry_id):
 #         return redirect(url_for('change_password'))
 #     return render_template('change_password.html')
 #
-# @app.route('/paste', methods=['POST'])
-# @login_required
-# def paste():
-#     link = request.form['link'].strip()
-#     if not link or not is_valid_url(link):
-#         flash('请输入有效的地址')
-#         return redirect(url_for('main'))
-#     parsed = urlparse(link)
-#     canonical_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-#     conn = sqlite3.connect('database.db')
-#     c = conn.cursor()
-#     c.execute("SELECT id FROM entries WHERE link=?", (canonical_url,))
-#     if c.fetchone():
-#         conn.close()
-#         flash("该链接已经上传")
-#         return redirect(url_for('main'))
-#     title = fetch_title(link)
-#     print(title)
-#     c.execute("""INSERT INTO entries
-#                 (uploader, upload_time, title, link, due_time, status, type)
-#                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
-#               (session['username'], datetime.now(), title, canonical_url, None, 'pending', '活动预告'))
-#     conn.commit()
-#     conn.close()
-#     flash('地址添加成功')
-#     return redirect(url_for('main'))
-#
-# @app.route('/upload_image', methods=['POST'])
-# @login_required
-# def upload_image():
-#     if 'image' not in request.files:
-#         flash("没有文件上传")
-#         return redirect(url_for('main'))
-#     file = request.files['image']
-#     if file.filename == '':
-#         flash("未选择文件")
-#         return redirect(url_for('main'))
-#     if file and allowed_file(file.filename):
-#         extension = file.filename.rsplit('.', 1)[1].lower()
-#         file_hash = hash_file(file)
-#         filename = f"{file_hash}.{extension}"
-#         conn = sqlite3.connect('database.db')
-#         c = conn.cursor()
-#         c.execute("SELECT id FROM entries WHERE link=?", (filename,))
-#         if c.fetchone():
-#             conn.close()
-#             flash("该图片已经上传")
-#             return redirect(url_for('main'))
-#         conn.close()
-#         upload_folder = os.path.join(app.root_path, 'static/uploads')
-#         os.makedirs(upload_folder, exist_ok=True)
-#         file_path = os.path.join(upload_folder, filename)
-#         file.save(file_path)
-#         dynamic_img_url = url_for('static', filename='uploads/' + filename, _external=True)
-#         conn = sqlite3.connect('database.db')
-#         c = conn.cursor()
-#         c.execute("""INSERT INTO entries
-#                      (uploader, upload_time, title, link, due_time, status, type)
-#                      VALUES (?, ?, ?, ?, ?, ?, ?)""",
-#                   (session['username'], datetime.now(), file.filename, filename, None, 'pending', '活动预告'))
-#         conn.commit()
-#         conn.close()
-#         flash("图片上传成功，并已添加到条目, 图片链接：<a href='" + dynamic_img_url + "' target='_blank'>" + dynamic_img_url + "</a>")
-#         return redirect(url_for('main'))
-#     else:
-#         flash("不支持的文件格式")
-#         return redirect(url_for('main'))
+@app.route('/paste', methods=['POST'])
+@login_required
+def paste():
+    link = request.form['link'].strip()
+    if not link or not is_valid_url(link):
+        flash('请输入有效的地址')
+        return redirect(url_for('main'))
+    parsed = urlparse(link)
+    canonical_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    if Content.objects.filter(link=canonical_url).exists():
+        flash("该链接已经上传")
+        return redirect(url_for('main'))
+    title = fetch_title(link)
+    print(title)
+    entry = Content.objects.create(
+        uploader=session['username'],
+        title=title,
+        link=canonical_url,
+        due_time=None,
+        status='draft',
+        type='活动预告'
+    )
+    flash('地址添加成功')
+    return redirect(url_for('main'))
+
+@app.route('/upload_image', methods=['POST'])
+@login_required
+def upload_image():
+    if 'image' not in request.files:
+        flash("没有文件上传")
+        return redirect(url_for('main'))
+    file = request.files['image']
+    if file.filename == '':
+        flash("未选择文件")
+        return redirect(url_for('main'))
+    if file and allowed_file(file.filename):
+        extension = file.filename.rsplit('.', 1)[1].lower()
+        file_hash = hash_file(file)
+        filename = f"{file_hash}.{extension}"
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute("SELECT id FROM entries WHERE link=?", (filename,))
+        if c.fetchone():
+            conn.close()
+            flash("该图片已经上传")
+            return redirect(url_for('main'))
+        conn.close()
+        upload_folder = os.path.join(app.root_path, 'static/uploads')
+        os.makedirs(upload_folder, exist_ok=True)
+        file_path = os.path.join(upload_folder, filename)
+        file.save(file_path)
+        dynamic_img_url = url_for('static', filename='uploads/' + filename, _external=True)
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute("""INSERT INTO entries
+                     (uploader, upload_time, title, link, due_time, status, type)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                  (session['username'], datetime.now(), file.filename, filename, None, 'pending', '活动预告'))
+        conn.commit()
+        conn.close()
+        flash("图片上传成功，并已添加到条目, 图片链接：<a href='" + dynamic_img_url + "' target='_blank'>" + dynamic_img_url + "</a>")
+        return redirect(url_for('main'))
+    else:
+        flash("不支持的文件格式")
+        return redirect(url_for('main'))
 #
 # @app.route('/admin')
 # @editor_required
@@ -627,20 +592,18 @@ def search():
     total_pages = 0
 
     if query:
-        conn = sqlite3.connect('database.db')
-        c = conn.cursor()
-        like_query = f'%{query}%'
-        c.execute("SELECT COUNT(*) FROM entries WHERE title LIKE ? OR description LIKE ?", (like_query, like_query))
-        total_count = c.fetchone()[0]
+        like_query = query  # 不需要手动添加 %%，Django ORM 的 __icontains 会自动处理
+
+        # 获取总数
+        total_count = Content.objects.filter(
+            Q(title__icontains=query) | Q(description__icontains=query)
+        ).count()
         total_pages = (total_count + page_size - 1) // page_size
 
-        c.execute("""SELECT * FROM entries
-                     WHERE title LIKE ? OR description LIKE ?
-                     ORDER BY upload_time DESC
-                     LIMIT ? OFFSET ?""",
-                  (like_query, like_query, page_size, offset))
-        results = c.fetchall()
-        conn.close()
+        # 获取分页结果
+        results = Content.objects.filter(
+            Q(title__icontains=query) | Q(description__icontains=query)
+        ).order_by('created_at')[offset:offset + page_size]
 
     return render_template('search.html', query=query, results=results, page=page, total_pages=total_pages)
 #
@@ -726,9 +689,9 @@ def search():
 # def typst_pub(date):
 #     return json.dumps(typst(date), ensure_ascii=False, indent=2), 200, {'Content-Type': 'application/json; charset=utf-8'}
 #
-# @app.route("/preview_edit")
-# def preview_edit():
-#     return render_template("preview_edit.html")
+@app.route("/preview_edit")
+def preview_edit():
+    return render_template("preview_edit.html")
 #
 # @app.route('/latex/<date>')
 # @login_required
@@ -772,26 +735,20 @@ def search():
 #             latex_output += "\\\\详见：" + r"\url{" + link + "}" + "\n\n"
 #     return latex_output, 200, {'Content-Type': 'text/plain; charset=utf-8'}
 #
-# @app.route('/delete/<int:entry_id>', methods=['POST'])
-# @login_required
-# def delete_entry(entry_id):
-#     conn = sqlite3.connect('database.db')
-#     c = conn.cursor()
-#     c.execute("SELECT uploader FROM entries WHERE id=?", (entry_id,))
-#     entry = c.fetchone()
-#     if not entry:
-#         conn.close()
-#         flash("条目不存在")
-#         return redirect(url_for('main'))
-#     if entry[0] != session['username']:
-#         conn.close()
-#         flash("你没有权限删除此条目，仅可删除自己上传的条目")
-#         return redirect(url_for('main'))
-#     c.execute("DELETE FROM entries WHERE id=?", (entry_id,))
-#     conn.commit()
-#     conn.close()
-#     flash("条目已删除")
-#     return redirect(url_for('main'))
+@app.route('/delete/<int:entry_id>', methods=['POST'])
+@login_required
+def delete_entry(entry_id):
+    try:
+        content =Content.objects.get(id=entry_id)
+        if content.uploader != session['username']:
+            flash("你没有权限删除此条目，仅可删除自己上传的条目")
+            return redirect(url_for('main'))
+        content.delete()
+        flash("条目已删除")
+        return redirect(url_for('main'))
+    except Content.DoesNotExist:
+        flash("条目不存在")
+        return redirect(url_for('main'))
 #
 # @app.route('/message_board', methods=['GET'])
 # @login_required
@@ -909,30 +866,34 @@ def search():
 #         flash("文件未找到")
 #     return redirect(url_for('admin_files'))
 #
-# @app.route('/add_deadline', methods=['GET', 'POST'])
-# @login_required
-# def add_deadline():
-#     if request.method == 'POST':
-#         link = request.form.get('link', '').strip()
-#         link_value = link if link else None
-#         short_title = request.form.get('short_title', '').strip()
-#         tag = request.form.get('tag', '').strip()
-#         today = datetime.now().strftime("%Y-%m-%d")
-#         publish_time = request.form.get('publish_time', today)
-#         due_time = request.form.get('due_time', today)
-#
-#         conn = sqlite3.connect('database.db')
-#         c = conn.cursor()
-#         c.execute("""INSERT INTO entries
-#                      (uploader, describer, upload_time, title, link, short_title, description, due_time, publish_date, status, tag, type)
-#                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-#                   (session['username'], session['username'], datetime.now(), short_title, link_value, short_title, '', due_time, publish_time, 'Approved', tag, "DDLOnly"))
-#         conn.commit()
-#         conn.close()
-#         flash("Deadline entry added successfully")
-#         return redirect(url_for('main'))
-#     today = datetime.now().strftime("%Y-%m-%d")
-#     return render_template('add_deadline.html', today=today)
+@app.route('/add_deadline', methods=['GET', 'POST'])
+@login_required
+def add_deadline():
+    if request.method == 'POST':
+        link = request.form.get('link', '').strip()
+        link_value = link if link else None
+        short_title = request.form.get('short_title', '').strip()
+        tag = request.form.get('tag', '').strip()
+        today = datetime.now().strftime("%Y-%m-%d")
+        publish_time = request.form.get('publish_time', today)
+        due_time = request.form.get('due_time', today)
+        news = Content.objects.create(
+            creator=session['username'],
+            describer=session['username'],
+            title=short_title,
+            link=link_value,
+            short_title=short_title,
+            description='',
+            deadline=due_time,
+            published_time=publish_time,
+            status='pending',
+            tag=tag,
+            type="DDLOnly",
+        )
+        flash("Deadline entry added successfully")
+        return redirect(url_for('main'))
+    today = datetime.now().strftime("%Y-%m-%d")
+    return render_template('add_deadline.html', today=today)
 #
 # @app.route('/publish', methods=["GET", "POST"])
 # @editor_required
