@@ -607,133 +607,147 @@ def search():
 
     return render_template('search.html', query=query, results=results, page=page, total_pages=total_pages)
 #
-# def typst(date):
-#     conn = sqlite3.connect('database.db')
-#     c = conn.cursor()
-#     today_str = datetime.now().strftime("%Y-%m-%d")
-#     print(date, today_str)
-#     if date != today_str:
-#         c.execute("SELECT title, description, link, tag, type, id FROM entries WHERE DATE(publish_date)=? ORDER BY upload_time ASC", (date,))
-#     else:
-#         c.execute("SELECT title, description, link, tag, type, id FROM entries WHERE DATE(publish_date)=? OR publish_date IS NULL ORDER BY upload_time ASC", (date,))
-#     entries = c.fetchall()
-#     conn.close()
-#     other, college, club, lecture  = [], [], [], []
-#     for title, description, link, tag, sector, num in entries:
-#         if sector == "DDLOnly":
-#             continue
-#         try:
-#             description = re.split(LINK_REGEX, description)
-#         except:
-#             continue
-#         splitted = []
-#         for e in description:
-#             if is_valid_url(e):
-#                 splitted.append({"type": "link", "content": e})
-#             else:
-#                 splitted.append({"type": "text", "content": e})
-#         description = splitted
-#         if allowed_file(link):
-#             link = None
-#         if(tag == "讲座" or sector == "讲座"):
-#             lecture.append({"title": title, "description": description, "link": link, "id": num})
-#         elif(tag == "院级活动"):
-#             college.append({"title": title, "description": description, "link": link, "id": num})
-#         elif(tag == "社团活动"):
-#             club.append({"title": title, "description": description, "link": link, "id": num})
-#         else:
-#             other.append({"title": title, "description": description, "link": link, "id": num})
-#     data = {
-#         "date": date,
-#         "no": 1,
-#         "first-v": 3,
-#         "lecture-v": 3,
-#         "other-v": 3,
-#         "college-v": 3,
-#         "club-v": 3,
-#         "college": college,
-#         "club": club,
-#         "lecture": lecture,
-#         "other": other
-#     }
-#     conn = sqlite3.connect('database.db')
-#     c = conn.cursor()
-#     c.execute("SELECT title, link, tag, due_time, publish_date, short_title, type, id FROM entries WHERE due_time IS NOT NULL AND due_time > ? AND DATE(publish_date) <= ? AND publish_date >= '2023-01-01' ORDER BY due_time ASC", (date, date))
-#     due_entries = c.fetchall()
-#     conn.close()
-#     other_due, college_due, club_due, lecture_due  = [], [], [], []
-#     for title, link, tag, due_time, publish_date, short_title, sector, num in due_entries:
-#         if short_title:
-#             title = short_title
-#         if allowed_file(link):
-#             link = None
-#         if(tag == "讲座" or sector == "讲座"):
-#             lecture_due.append({"title": title, "link": link, "due_time": due_time, "publish_date": publish_date, "id": num})
-#         elif(tag == "院级活动"):
-#             college_due.append({"title": title, "link": link, "due_time": due_time, "publish_date": publish_date, "id": num})
-#         elif(tag == "社团活动"):
-#             club_due.append({"title": title, "link": link, "due_time": due_time, "publish_date": publish_date, "id": num})
-#         else:
-#             other_due.append({"title": title, "link": link, "due_time": due_time, "publish_date": publish_date, "id": num})
-#     due = {
-#         "college": college_due,
-#         "club": club_due,
-#         "lecture": lecture_due,
-#         "other": other_due
-#     }
-#
-#     return {"data": data, "due": due}
-#
-# @app.route('/typst/<date>')
-# # @login_required
-# def typst_pub(date):
-#     return json.dumps(typst(date), ensure_ascii=False, indent=2), 200, {'Content-Type': 'application/json; charset=utf-8'}
-#
+def typst(date):
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    print(date, today_str)
+    if date != today_str:
+        content_query = Content.objects.filter(published_time__date=date)
+    else:
+        content_query = Content.objects.filter(
+            Q(published_time__date=date) | Q(published_time__isnull=True)
+        )
+    other, college, club, lecture  = [], [], [], []
+    for content_item in content_query:
+        title = content_item.title
+        description = content_item.description
+        link = content_item.link
+        tag = content_item.tag
+        type = content_item.type
+        id = content_item.id
+        if type== "DDLOnly":
+            continue
+        try:
+            description = re.split(LINK_REGEX, description)
+        except:
+            continue
+        splitted = []
+        for e in description:
+            if is_valid_url(e):
+                splitted.append({"type": "link", "content": e})
+            else:
+                splitted.append({"type": "text", "content": e})
+        description = splitted
+        if allowed_file(link):
+            link = None
+        if(tag == "讲座" or type == "讲座"):
+            lecture.append({"title": title, "description": description, "link": link, "id": id})
+        elif(tag == "院级活动"):
+            college.append({"title": title, "description": description, "link": link, "id": id})
+        elif(tag == "社团活动"):
+            club.append({"title": title, "description": description, "link": link, "id": id})
+        else:
+            other.append({"title": title, "description": description, "link": link, "id": id})
+    data = {
+        "date": date,
+        "no": 1,
+        "first-v": 3,
+        "lecture-v": 3,
+        "other-v": 3,
+        "college-v": 3,
+        "club-v": 3,
+        "college": college,
+        "club": club,
+        "lecture": lecture,
+        "other": other
+    }
+    due_content = Content.objects.filter(
+        deadline__isnull=False,  # due_time IS NOT NULL
+        deadline__gt=date,  # due_time > date
+        publish_time__date__lte=date,  # DATE(publish_date) <= date
+        publish_time__date__gte=date(2023, 1, 1)  # publish_date >= '2023-01-01'
+    ).order_by('due_time')
+    other_due, college_due, club_due, lecture_due  = [], [], [], []
+    for content_item in due_content:
+        title = content_item.title
+        short_title = content_item.short_title
+        deadline = content_item.deadline
+        publish_time = content_item.publish_time
+        link = content_item.link
+        tag = content_item.tag
+        type = content_item.type
+        id = content_item.id
+        if short_title:
+            title = short_title
+        if allowed_file(link):
+            link = None
+        if(tag == "讲座" or type == "讲座"):
+            lecture_due.append({"title": title, "link": link, "due_time": deadline, "publish_date": publish_time, "id": id})
+        elif(tag == "院级活动"):
+            college_due.append({"title": title, "link": link, "due_time": deadline, "publish_date": publish_time, "id": id})
+        elif(tag == "社团活动"):
+            club_due.append({"title": title, "link": link, "due_time": deadline, "publish_date": publish_time, "id": id})
+        else:
+            other_due.append({"title": title, "link": link, "due_time": deadline, "publish_date": publish_time, "id": id})
+    due = {
+        "college": college_due,
+        "club": club_due,
+        "lecture": lecture_due,
+        "other": other_due
+    }
+
+    return {"data": data, "due": due}
+
+@app.route('/typst/<date>')
+# @login_required
+def typst_pub(date):
+    return json.dumps(typst(date), ensure_ascii=False, indent=2), 200, {'Content-Type': 'application/json; charset=utf-8'}
+
 @app.route("/preview_edit")
 def preview_edit():
     return render_template("preview_edit.html")
-#
-# @app.route('/latex/<date>')
-# @login_required
-# def latex_entries(date):
-#     conn = sqlite3.connect('database.db')
-#     c = conn.cursor()
-#     c.execute("SELECT title, description, link, tag, describer FROM entries WHERE DATE(publish_date)=? ORDER BY tag ASC", (date,))
-#     entries = c.fetchall()
-#     conn.close()
-#
-#     def escape_latex(text):
-#         if not text:
-#             return ""
-#         text = text.replace('\\', r'\textbackslash{}')
-#         special_chars = {
-#             '&': r'\&',
-#             '%': r'\%',
-#             '$': r'\$',
-#             '#': r'\#',
-#             '_': r'\_',
-#             '{': r'\{',
-#             '}': r'\}',
-#             '~': r'\textasciitilde{}',
-#             '^': r'\^{}',
-#         }
-#         for char, replacement in special_chars.items():
-#             text = text.replace(char, replacement)
-#         return text
-#
-#     latex_output = ""
-#     for title, description, link, tag, describer in entries:
-#         title = escape_latex(title)
-#         title = title.rstrip('\r\n')
-#         description = escape_latex(description).replace('\n', r'\\')
-#         if tag in ["讲座", "院级活动", "社团活动"]:
-#             latex_output += r"\subsection{" + title + "} % " + tag + " describer: " + describer + "\n"
-#         else:
-#             latex_output += r"\section{" + title + "} % " + tag + " describer: " + describer + "\n"
-#         latex_output += description + "\n"
-#         if link and len(link) > 10:
-#             latex_output += "\\\\详见：" + r"\url{" + link + "}" + "\n\n"
-#     return latex_output, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
+@app.route('/latex/<date>')
+@login_required
+def latex_entries(date):
+    content = Content.objects.filter(published_time__date=date)
+
+    def escape_latex(text):
+        if not text:
+            return ""
+        text = text.replace('\\', r'\textbackslash{}')
+        special_chars = {
+            '&': r'\&',
+            '%': r'\%',
+            '$': r'\$',
+            '#': r'\#',
+            '_': r'\_',
+            '{': r'\{',
+            '}': r'\}',
+            '~': r'\textasciitilde{}',
+            '^': r'\^{}',
+        }
+        for char, replacement in special_chars.items():
+            text = text.replace(char, replacement)
+        return text
+
+    latex_output = ""
+    for cotent_item in content:
+        title = cotent_item.title
+        tag = cotent_item.tag
+        link = cotent_item.link
+        describer = cotent_item.describer
+        title = escape_latex(title)
+        title = title.rstrip('\r\n')
+        description = escape_latex(description).replace('\n', r'\\')
+        if tag in ["讲座", "院级活动", "社团活动"]:
+            latex_output += r"\subsection{" + title + "} % " + tag + " describer: " + describer + "\n"
+        else:
+            latex_output += r"\section{" + title + "} % " + tag + " describer: " + describer + "\n"
+        latex_output += description + "\n"
+        if link and len(link) > 10:
+            latex_output += "\\\\详见：" + r"\url{" + link + "}" + "\n\n"
+    return latex_output, 200, {'Content-Type': 'text/plain; charset=utf-8'}
 #
 @app.route('/delete/<int:entry_id>', methods=['POST'])
 @login_required
@@ -894,28 +908,28 @@ def add_deadline():
         return redirect(url_for('main'))
     today = datetime.now().strftime("%Y-%m-%d")
     return render_template('add_deadline.html', today=today)
-#
-# @app.route('/publish', methods=["GET", "POST"])
-# @editor_required
-# def publish():
-#     if request.method == "POST":
-#         new_content = request.form.get("content", "")
-#         with open("./latest.json", "w") as f:
-#             f.write(new_content)
-#         parsed = json.loads(new_content)
-#         with open("./archived/" + parsed["data"]["date"] + ".json", "w") as f:
-#             f.write(new_content)
-#         try:
-#             subprocess.run(["./typst", "compile", "--font-path", "/home/nik_nul/font", "news_template.typ", "./static/latest.pdf"], check=True)
-#         except subprocess.CalledProcessError:
-#            flash("Compilation failed. Please check typst installation and source file.")
-#         return render_template("publish.html", content=new_content)
-#     else:
-#         content = ""
-#         if os.path.exists("latest.json"):
-#             with open("latest.json", "r") as f:
-#                 content = f.read()
-#         return render_template("publish.html", content=content)
+
+@app.route('/publish', methods=["GET", "POST"])
+@editor_required
+def publish():
+    if request.method == "POST":
+        new_content = request.form.get("content", "")
+        with open("./latest.json", "w") as f:
+            f.write(new_content)
+        parsed = json.loads(new_content)
+        with open("./archived/" + parsed["data"]["date"] + ".json", "w") as f:
+            f.write(new_content)
+        try:
+            subprocess.run(["./typst", "compile", "--font-path", "/home/nik_nul/font", "news_template.typ", "./static/latest.pdf"], check=True)
+        except subprocess.CalledProcessError:
+           flash("Compilation failed. Please check typst installation and source file.")
+        return render_template("publish.html", content=new_content)
+    else:
+        content = ""
+        if os.path.exists("latest.json"):
+            with open("latest.json", "r") as f:
+                content = f.read()
+        return render_template("publish.html", content=content)
 #
 # def read_mailing_list():
 #     try:
